@@ -94,7 +94,7 @@ jobs:
       - name: Build image locally
         run: docker build -f services/${{ matrix.service }}/Dockerfile -t ci-demo-${{ matrix.service }}:${{ github.sha }} .
       - name: Scan image for high and critical vulnerabilities
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ci-demo-${{ matrix.service }}:${{ github.sha }}
           format: table
