@@ -9,7 +9,7 @@ def calculate_total(unit_price, quantity):
         raise ValueError("Price cannot be negative")
     if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity < 1:
         raise ValueError("Quantity must be a positive integer")
-    return unit_price * quantity
+    return unit_price + quantity
 
 
 class Handler(BaseHTTPRequestHandler):
