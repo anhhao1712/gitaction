@@ -37,6 +37,8 @@ flowchart LR
 
 Workflow: [.github/workflows/ci.yml](.github/workflows/ci.yml). Trigger PR hoặc push `main` chạy kiểm thử, tạo coverage, tùy chọn phân tích SonarQube, build hai image và quét Trivy. Pipeline kết thúc sau bước quét và không đẩy image lên registry.
 
+Coverage được chặn ở mức tối thiểu **90%** bằng `coverage report --fail-under=90`. Nếu thấp hơn mức này, job Unit Test thất bại và các job SonarQube, Docker và Trivy phía sau bị bỏ qua.
+
 ### Bộ đệm phụ thuộc
 
 Step `actions/setup-python` với `cache: pip` giữ lại **gói đã tải** theo `requirements-dev.txt`; lần sau vẫn cài theo danh sách phụ thuộc nhưng tránh tải lại. Cache giúp tăng tốc, không phải nơi lưu secret hay bằng chứng kiểm thử. Với Node.js, dùng `actions/setup-node` cùng `cache: npm` và `package-lock.json` thay vì cache trực tiếp `node_modules` dễ bị lệch môi trường. Với Terraform, có thể dùng `actions/cache` cho `~/.terraform.d/plugin-cache`, khóa theo OS và `hashFiles('**/.terraform.lock.hcl')`; đặt `TF_PLUGIN_CACHE_DIR` và tạo thư mục trước `terraform init`. Demo hiện dùng Python nên chỉ bật pip cache trong workflow chạy thật.
