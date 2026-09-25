@@ -12,6 +12,50 @@ def calculate_total(unit_price, quantity):
     return unit_price * quantity
 
 
+def calculate_discount(price, customer_tier, coupon=None):
+    """Calculate the final price after membership and coupon discounts."""
+    if price < 0:
+        raise ValueError("Price cannot be negative")
+
+    if customer_tier == "gold":
+        discount_rate = 0.20
+    elif customer_tier == "silver":
+        discount_rate = 0.10
+    elif customer_tier == "student":
+        discount_rate = 0.05
+    else:
+        discount_rate = 0.0
+
+    if coupon == "SAVE15":
+        discount_rate += 0.15
+    elif coupon == "SAVE5":
+        discount_rate += 0.05
+
+    discount_rate = min(discount_rate, 0.30)
+    return round(price * (1 - discount_rate), 2)
+
+
+def calculate_shipping(subtotal, zone, express=False):
+    """Calculate shipping from order value, delivery zone and speed."""
+    if subtotal < 0:
+        raise ValueError("Subtotal cannot be negative")
+
+    if zone == "domestic":
+        shipping_fee = 20
+    elif zone == "international":
+        shipping_fee = 50
+    elif zone == "remote":
+        shipping_fee = 70
+    else:
+        raise ValueError("Unknown shipping zone")
+
+    if express:
+        shipping_fee += 30
+    if subtotal >= 500:
+        shipping_fee = 0
+    return shipping_fee
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
