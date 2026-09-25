@@ -37,7 +37,7 @@ flowchart LR
 
 Workflow: [.github/workflows/ci.yml](.github/workflows/ci.yml). Trigger PR hoặc push `main` chạy kiểm thử, tạo coverage, tùy chọn phân tích SonarQube, build hai image và quét Trivy. Pipeline kết thúc sau bước quét và không đẩy image lên registry.
 
-Coverage được chặn ở mức tối thiểu **90%** bằng `coverage report --fail-under=90`. Nếu thấp hơn mức này, job Unit Test thất bại và các job SonarQube, Docker và Trivy phía sau bị bỏ qua.
+Job Unit Test tạo và hiển thị báo cáo Coverage nhưng không tự chặn theo một tỷ lệ cố định. Khi SonarQube được bật, báo cáo `coverage.xml` được gửi sang SonarQube và Quality Gate quyết định Coverage cùng các tiêu chí chất lượng có đạt hay không. Nếu Quality Gate không đạt, Docker và Trivy phía sau bị bỏ qua.
 
 ### Bộ đệm phụ thuộc
 
@@ -83,7 +83,7 @@ Trivy hiện chạy ở chế độ báo cáo với `exit-code: '0'`: các lỗ 
 ## 5. Kịch bản trình diễn trên lớp
 
 1. Push lên `main` và xem bốn ô Unit Test chạy song song trên hai hệ điều hành và hai phiên bản Python.
-2. Mở job `Coverage and optional SonarQube`: báo cáo coverage được tải xuống và SonarQube được ghi nhận là đang tắt.
+2. Mở job `SonarQube and Quality Gate`: báo cáo coverage được tải xuống và gửi sang SonarQube khi chế độ Sonar được bật.
 3. Mở hai job `Docker build and Trivy`: mỗi service được build thành một image và quét HIGH/CRITICAL.
 4. Có thể tạm đổi `return unit_price * quantity` thành phép cộng rồi push: Unit Test đỏ và các job phía sau bị bỏ qua. Sau khi trình diễn, khôi phục phép nhân.
 
