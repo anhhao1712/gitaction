@@ -89,6 +89,43 @@ Trivy hiện chạy ở chế độ báo cáo với `exit-code: '0'`: các lỗ 
 
 Image build từ `python:3.12-slim` có thể xuất hiện CVE mới theo thời gian. Ở chế độ hiện tại, Trivy báo cáo chúng trong log để phục vụ việc học.
 
+## 6. Kịch bản kiểm thử CI
+
+### Luồng thành công
+
+```bash
+git switch main
+git pull origin main
+git switch -c demo/success
+# Sửa một dòng an toàn trong README.md
+git add README.md
+git commit -m "Demo successful CI pipeline"
+git push -u origin demo/success
+```
+
+Tạo Pull Request từ `demo/success` vào `main`, sau đó xem **Pull Request → Checks** hoặc **Actions → Microservices CI demo**. Kết quả mong đợi: bốn job Unit Test, SonarQube Quality Gate và hai job Docker/Trivy đều xanh.
+
+### Các điểm cần quan sát
+
+- **Trigger:** Pull Request vào `main` chạy CI; merge PR tạo sự kiện push vào `main` và chạy CI lần nữa.
+- **Matrix:** bốn job `2 OS × 2 Python` chạy song song.
+- **Cache:** mở step `Set up Python and cache pip downloads`; lần chạy sau có thể thấy `Cache hit` hoặc `Cache restored`.
+- **Coverage:** mở step `Show coverage report` và tải artifact `coverage-report` nếu cần.
+- **SonarQube:** mở job `SonarQube and Quality Gate`, rồi xem Coverage và Quality Gate trong SonarQube Cloud.
+- **Docker/Trivy:** mở hai job `Docker build and Trivy` để xem log build image và bảng lỗ hổng HIGH/CRITICAL.
+
+### Luồng Unit Test thất bại
+
+Trên một nhánh demo, tạm đổi phép nhân trong `calculate_total` thành phép cộng rồi push và tạo PR. Unit Test sẽ đỏ; SonarQube và Docker/Trivy bị bỏ qua. Khôi phục phép nhân sau khi demo và không merge commit cố ý gây lỗi.
+
+### Luồng SonarQube Quality Gate thất bại
+
+Nhánh `demo/coverage-sonar` thêm code đúng logic nhưng chưa có test. Kết quả dự kiến: 15 Unit Test đạt, Coverage khoảng 63%, SonarQube Quality Gate đỏ và Docker/Trivy bị bỏ qua. Viết thêm test hoặc loại bỏ code demo rồi push lại để Quality Gate chuyển xanh.
+
+### Phạm vi chưa triển khai
+
+Demo chưa cấu hình GitHub OIDC, AWS IAM Role và Push ECR. Trivy đang ở chế độ báo cáo với `exit-code: '0'`; đổi thành `'1'` khi muốn lỗ hổng HIGH/CRITICAL chặn bước push image.
+
 ## Nguồn chính thức
 
 - [GitHub Actions workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)
