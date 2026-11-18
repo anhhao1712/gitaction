@@ -162,6 +162,16 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: node .github/scripts/prepare-sonar.mjs
 
+      - name: Use Git Bash instead of WSL bash on Windows
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $gitBashDir = Join-Path $env:ProgramFiles 'Git\bin'
+          if (-not (Test-Path -LiteralPath (Join-Path $gitBashDir 'bash.exe'))) {
+            throw 'Git Bash is required on the Windows runner.'
+          }
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value $gitBashDir
+
       - name: Scan code and wait for Quality Gate
         uses: SonarSource/sonarqube-scan-action@v5.0.0
         env:

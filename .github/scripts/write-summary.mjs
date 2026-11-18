@@ -20,6 +20,7 @@ try {
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
       },
+      signal: AbortSignal.timeout(5000),
     },
   );
   if (response.ok) jobs = (await response.json()).jobs ?? [];
