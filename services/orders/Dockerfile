@@ -1,6 +1,0 @@
-FROM python:3.12-slim
-WORKDIR /app
-COPY services /app/services
-EXPOSE 8080
-USER 10001
-CMD ["python", "-m", "services.orders.app"]

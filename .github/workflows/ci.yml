@@ -1,109 +1,363 @@
-name: Microservices CI demo
+name: CI and image release
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  unit-test:
-    name: Unit test (${{ matrix.os }}, Python ${{ matrix.python-version }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        python-version: ['3.11', '3.12']
+  lint_backend:
+    name: Lint (backend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-      - name: Set up Python and cache pip downloads
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: requirements-dev.txt
-      - name: Install test tools
-        run: python -m pip install -r requirements-dev.txt
-      - name: Run unit tests and collect coverage
-        run: python -m coverage run --source=services -m unittest discover -s tests -v
-      - name: Create coverage XML
-        run: python -m coverage xml -o coverage.xml
-      - name: Show coverage report
-        run: python -m coverage report
-      - name: Save coverage report
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        id: install
+        working-directory: backend
+        run: npm ci
+
+      - name: Lint backend
+        id: lint
+        working-directory: backend
+        run: npm run lint
+
+      - name: Write lint result
+        if: always()
+        env:
+          REPORT_KIND: lint
+          COMPONENT: backend
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+        run: node .github/scripts/make-report.mjs
+
+      - name: Upload lint result
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report
-          path: coverage.xml
-          if-no-files-found: error
+          name: ci-report-lint-backend
+          path: ci-report-lint-backend.json
+          if-no-files-found: warn
+          retention-days: 14
 
-  quality-check:
-    name: SonarQube and Quality Gate
-    needs: unit-test
+  test_backend:
+    name: Test (backend)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Checkout full history
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        id: install
+        working-directory: backend
+        run: npm ci
+
+      - name: Run backend tests
+        id: test
+        working-directory: backend
+        env:
+          CI: 'true'
+        run: npm test -- --runInBand --ci
+
+      - name: Write test result
+        if: always()
+        env:
+          REPORT_KIND: test
+          COMPONENT: backend
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          TEST_OUTCOME: ${{ steps.test.outcome }}
+        run: node .github/scripts/make-report.mjs
+
+      - name: Upload test result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-report-test-backend
+          path: ci-report-test-backend.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  test_frontend:
+    name: Test (frontend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        id: install
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend tests
+        id: test
+        working-directory: frontend
+        env:
+          CI: 'true'
+        run: npm test -- --watch=false --runInBand
+
+      - name: Write test result
+        if: always()
+        env:
+          REPORT_KIND: test
+          COMPONENT: frontend
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          TEST_OUTCOME: ${{ steps.test.outcome }}
+        run: node .github/scripts/make-report.mjs
+
+      - name: Upload test result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-report-test-frontend
+          path: ci-report-test-frontend.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  sonarqube:
+    name: SonarQube
+    if: github.event_name != 'pull_request' || (vars.SONAR_MODE != 'local' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ${{ fromJSON(vars.SONAR_MODE == 'local' && '["self-hosted","sonar-local"]' || '["ubuntu-latest"]') }}
+    timeout-minutes: 15
+    env:
+      SONAR_MODE: ${{ vars.SONAR_MODE || 'cloud' }}
+      SONAR_HOST_URL: ${{ vars.SONAR_MODE == 'local' && (vars.SONAR_HOST_URL || 'http://localhost:9000') || 'https://sonarcloud.io' }}
+      SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
+      SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
+    steps:
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Restore coverage report
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-report
-      - name: Explain SonarQube mode
-        if: vars.ENABLE_SONAR != 'true'
-        run: echo "SonarQube is disabled. Set ENABLE_SONAR=true and configure the Sonar variables and secret to enable it."
-      - name: Check SonarQube configuration
-        if: vars.ENABLE_SONAR == 'true'
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
-          SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
-          SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
-        run: |
-          test -n "$SONAR_TOKEN" || { echo 'Missing SONAR_TOKEN secret'; exit 1; }
-          test -n "$SONAR_HOST_URL" || { echo 'Missing SONAR_HOST_URL variable'; exit 1; }
-          test -n "$SONAR_PROJECT_KEY" || { echo 'Missing SONAR_PROJECT_KEY variable'; exit 1; }
-          test -n "$SONAR_ORGANIZATION" || { echo 'Missing SONAR_ORGANIZATION variable'; exit 1; }
-      - name: Analyze and wait for Quality Gate
-        if: vars.ENABLE_SONAR == 'true'
-        uses: SonarSource/sonarqube-scan-action@v7
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
-        with:
-          args: >
-            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
-            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
-            -Dsonar.qualitygate.wait=true
-            -Dsonar.qualitygate.timeout=300
 
-  image:
-    name: Docker build and Trivy (${{ matrix.service }})
-    needs: quality-check
+      - name: Verify settings and prepare SonarQube project
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: node .github/scripts/prepare-sonar.mjs
+
+      - name: Scan code and wait for Quality Gate
+        uses: SonarSource/sonarqube-scan-action@v5.0.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  image-security:
+    name: Image security (${{ matrix.component }})
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        service: [catalog, orders]
+        component: [backend, frontend]
+    env:
+      DOCKER_BUILD_SUMMARY: 'false'
+      DOCKER_BUILD_RECORD_UPLOAD: 'false'
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-      - name: Build image locally
-        run: docker build -f services/${{ matrix.service }}/Dockerfile -t ci-demo-${{ matrix.service }}:${{ github.sha }} .
-      - name: Scan image for high and critical vulnerabilities
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build container image with layer cache
+        id: image_build
+        uses: docker/build-push-action@v7
+        with:
+          context: ./${{ matrix.component }}
+          load: true
+          tags: todo-app-${{ matrix.component }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=todo-app-${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=todo-app-${{ matrix.component }},ignore-error=true
+
+      - name: Scan image (High and Critical gate)
+        id: scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ci-demo-${{ matrix.service }}:${{ github.sha }}
-          format: table
-          # Report-only mode keeps this learning pipeline running to completion.
-          # Change to '1' later to block the pipeline when vulnerabilities exist.
-          exit-code: '0'
+          image-ref: todo-app-${{ matrix.component }}:sha-${{ github.sha }}
+          format: json
+          output: trivy-${{ matrix.component }}.json
+          scanners: vuln
           severity: HIGH,CRITICAL
-          vuln-type: os,library
+          exit-code: '1'
+
+      - name: Show vulnerable packages and fixed versions
+        if: always()
+        env:
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          report="trivy-${COMPONENT}.json"
+          if [ -f "$report" ]; then
+            jq -r '.Results[]? | .Target as $target | .Vulnerabilities[]? | [$target, .VulnerabilityID, .PkgName, .InstalledVersion, (.FixedVersion // "not fixed"), .Severity] | @tsv' "$report" | sort -u
+          fi
+
+      - name: Upload Trivy findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-${{ matrix.component }}
+          path: trivy-${{ matrix.component }}.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Save verified image for release
+        id: image_save
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        env:
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          docker save "todo-app-${COMPONENT}:sha-${GITHUB_SHA}" | gzip -1 > "image-${COMPONENT}.tar.gz"
+
+      - name: Upload verified image
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.component }}
+          path: image-${{ matrix.component }}.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+      - name: Write image result
+        if: always()
+        env:
+          REPORT_KIND: image
+          COMPONENT: ${{ matrix.component }}
+          BUILD_OUTCOME: ${{ steps.image_build.outcome }}
+          SCAN_OUTCOME: ${{ steps.scan.outcome }}
+          SAVE_OUTCOME: ${{ steps.image_save.outcome }}
+        run: node .github/scripts/make-report.mjs
+
+      - name: Upload image result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-report-image-${{ matrix.component }}
+          path: ci-report-image-${{ matrix.component }}.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  publish:
+    name: Publish (${{ matrix.component }})
+    needs: [lint_backend, test_backend, test_frontend, sonarqube, image-security]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.lint_backend.result == 'success' && needs.test_backend.result == 'success' && needs.test_frontend.result == 'success' && needs.sonarqube.result == 'success' && needs.image-security.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [backend, frontend]
+    permissions:
+      contents: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+      COMPONENT: ${{ matrix.component }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start release record
+        run: |
+          printf '{"component":"%s","image":null,"digest":null}\n' "$COMPONENT" > "release-${COMPONENT}.json"
+
+      - name: Download verified image
+        uses: actions/download-artifact@v4
+        with:
+          name: image-${{ matrix.component }}
+          path: images/${{ matrix.component }}
+
+      - name: Configure AWS credentials from lab details
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity --query '{Account:Account,Arn:Arn}'
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push verified image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: bash .github/scripts/publish-images.sh
+
+      - name: Upload release record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-result-${{ matrix.component }}
+          path: release-${{ matrix.component }}.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  summary:
+    name: Pipeline summary
+    needs: [lint_backend, test_backend, test_frontend, sonarqube, image-security, publish]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download component results
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: ci-report-*
+          path: ci-reports
+          merge-multiple: true
+
+      - name: Download release results
+        if: needs.publish.result != 'skipped'
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: release-result-*
+          path: release-results
+          merge-multiple: true
+
+      - name: Write run summary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SONAR_MODE: ${{ vars.SONAR_MODE || 'cloud' }}
+          LINT_RESULT: ${{ needs.lint_backend.result }}
+          TEST_BACKEND_RESULT: ${{ needs.test_backend.result }}
+          TEST_FRONTEND_RESULT: ${{ needs.test_frontend.result }}
+          SONAR_RESULT: ${{ needs.sonarqube.result }}
+          IMAGE_RESULT: ${{ needs.image-security.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+        run: node .github/scripts/write-summary.mjs

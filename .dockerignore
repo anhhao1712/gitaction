@@ -1,9 +1,0 @@
-.git
-.github
-tests
-*.md
-*.json
-coverage.xml
-.coverage
-__pycache__
-*.pyc
