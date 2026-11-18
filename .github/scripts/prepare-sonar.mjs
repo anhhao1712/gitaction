@@ -38,8 +38,7 @@ for (const file of coverageFiles) {
 const properties = [
   `sonar.projectKey=${projectKey}`,
   `sonar.organization=${organization}`,
-  'sonar.sources=backend,frontend/src',
-  'sonar.exclusions=**/node_modules/**,**/coverage/**,**/build/**',
+  'sonar.exclusions=.github/**,docs/**,**/node_modules/**,**/coverage/**,**/build/**',
   `sonar.javascript.lcov.reportPaths=${coverageFiles.join(',')}`,
   'sonar.qualitygate.wait=true',
   'sonar.qualitygate.timeout=600',
