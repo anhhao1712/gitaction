@@ -32,7 +32,7 @@ const jobFor = (name) => jobs.find((job) => job.name === name);
 const display = (value) => ({
   success: '✅ Đạt',
   failure: '❌ Lỗi',
-  skipped: '— Chưa chạy',
+  skipped: '⏭️ Bỏ qua',
   cancelled: '⚪ Đã hủy',
 })[value] ?? '— Chưa có dữ liệu';
 const count = (value) => value == null ? '—' : String(value);
@@ -42,38 +42,53 @@ const lines = [
   '',
   `Commit: \`${process.env.GITHUB_SHA}\` · ${link('Xem toàn bộ run', runUrl)}`,
   '',
-  '| Thành phần | Lint | Test | Build image | Trivy | High | Critical | ECR image | Log |',
-  '| --- | --- | --- | --- | --- | ---: | ---: | --- | --- |',
+  '### 1. Kiểm tra mã',
+  '',
+  '| Thành phần | Lint | Test | Line coverage (LCOV) | Log |',
+  '| --- | --- | --- | ---: | --- |',
 ];
 
 for (const component of ['backend', 'frontend']) {
-  const lintReport = component === 'backend' ? readJson('ci-reports/ci-report-lint-backend.json') ?? {} : {};
+  const lintReport = readJson(`ci-reports/ci-report-lint-${component}.json`) ?? {};
   const testReport = readJson(`ci-reports/ci-report-test-${component}.json`) ?? {};
-  const imageReport = readJson(`ci-reports/ci-report-image-${component}.json`) ?? {};
-  const release = readJson(`release-results/release-${component}.json`) ?? {};
-  const lintJob = component === 'backend' ? jobFor('Lint (backend)') : null;
+  const lintJob = jobFor(`Lint (${component})`);
   const testJob = jobFor(`Test (${component})`);
-  const imageJob = jobFor(`Image security (${component})`);
-  const publishJob = jobFor(`Publish (${component})`);
-  const image = release.image
-    ? `\`${release.image}\`${release.digest ? `<br>\`${release.digest}\`` : '<br>Digest chưa xác nhận'}`
-    : 'Chưa phát hành';
-  const logs = [
-    ...(lintJob ? [link('lint', lintJob.html_url)] : []),
-    link('test', testJob?.html_url),
-    link('scan', imageJob?.html_url),
-    ...(publishJob ? [link('push', publishJob.html_url)] : []),
-  ].join(' · ');
-  const lint = component === 'backend' ? display(lintReport.lint) : '— Không áp dụng';
-  lines.push(`| ${component} | ${lint} | ${display(testReport.test)} | ${display(imageReport.imageBuild)} | ${display(imageReport.scan)} | ${count(imageReport.vulnerabilities?.high)} | ${count(imageReport.vulnerabilities?.critical)} | ${image} | ${logs} |`);
+  const coverage = testReport.lineCoverage == null ? '—' : `${testReport.lineCoverage}%`;
+  lines.push(`| ${component} | ${display(lintReport.lint)} | ${display(testReport.test)} | ${coverage} | ${link('lint', lintJob?.html_url)} · ${link('test', testJob?.html_url)} |`);
 }
 
-const sonarJob = jobFor('SonarQube');
+const sonarJob = jobFor('SonarQube Cloud');
 lines.push(
   '',
-  `**Lint backend:** ${display(process.env.LINT_RESULT)} · **Test backend:** ${display(process.env.TEST_BACKEND_RESULT)} · **Test frontend:** ${display(process.env.TEST_FRONTEND_RESULT)}`,
-  `**SonarQube (${process.env.SONAR_MODE}):** ${display(process.env.SONAR_RESULT)} (${link('log', sonarJob?.html_url)}) · **Image scan:** ${display(process.env.IMAGE_RESULT)} · **Phát hành:** ${display(process.env.PUBLISH_RESULT)}`,
+  '### 2. Chất lượng và bảo mật',
+  '',
+  `**SonarQube Cloud / Quality Gate:** ${display(process.env.SONAR_RESULT)} · ${link('Log Sonar', sonarJob?.html_url)}`,
+  '',
+  '| Image | Build | Trivy | High | Critical | Log |',
+  '| --- | --- | --- | ---: | ---: | --- |',
 );
+for (const component of ['backend', 'frontend']) {
+  const imageReport = readJson(`ci-reports/ci-report-image-${component}.json`) ?? {};
+  const imageJob = jobFor(`Image security (${component})`);
+  lines.push(`| ${component} | ${display(imageReport.imageBuild)} | ${display(imageReport.scan)} | ${count(imageReport.vulnerabilities?.high)} | ${count(imageReport.vulnerabilities?.critical)} | ${link('build và scan', imageJob?.html_url)} |`);
+}
+
+lines.push('', '### 3. Phát hành ECR', '');
+if (process.env.GITHUB_EVENT_NAME === 'pull_request') {
+  lines.push('Pull request: không phát hành image lên ECR.', '');
+} else if (process.env.PUBLISH_RESULT === 'skipped') {
+  lines.push('⏭️ Phát hành bị chặn vì một hoặc nhiều bước kiểm tra chưa đạt.', '');
+}
+lines.push('| Image | Trạng thái | ECR image | Log |', '| --- | --- | --- | --- |');
+for (const component of ['backend', 'frontend']) {
+  const release = readJson(`release-results/release-${component}.json`) ?? {};
+  const publishJob = jobFor(`Publish (${component})`);
+  const status = publishJob?.conclusion ?? process.env.PUBLISH_RESULT;
+  const image = release.image
+    ? `\`${release.image}\`${release.digest ? `<br>Digest: \`${release.digest}\`` : ''}`
+    : '— Chưa phát hành';
+  lines.push(`| ${component} | ${display(status)} | ${image} | ${link('push', publishJob?.html_url)} |`);
+}
 
 const failures = jobs.flatMap((job) =>
   (job.steps ?? [])

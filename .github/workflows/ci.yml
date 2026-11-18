@@ -56,6 +56,47 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  lint_frontend:
+    name: Lint (frontend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        id: install
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint frontend
+        id: lint
+        working-directory: frontend
+        run: ./node_modules/.bin/eslint src --ext .js,.jsx
+
+      - name: Write lint result
+        if: always()
+        env:
+          REPORT_KIND: lint
+          COMPONENT: frontend
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+        run: node .github/scripts/make-report.mjs
+
+      - name: Upload lint result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-report-lint-frontend
+          path: ci-report-lint-frontend.json
+          if-no-files-found: warn
+          retention-days: 14
+
   test_backend:
     name: Test (backend)
     runs-on: ubuntu-latest
@@ -79,7 +120,15 @@ jobs:
         working-directory: backend
         env:
           CI: 'true'
-        run: npm test -- --runInBand --ci
+        run: npm test -- --runInBand --ci --coverage --coverageReporters=lcov
+
+      - name: Upload backend coverage for SonarQube
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-backend
+          path: backend/coverage/lcov.info
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Write test result
         if: always()
@@ -122,7 +171,15 @@ jobs:
         working-directory: frontend
         env:
           CI: 'true'
-        run: npm test -- --watch=false --runInBand
+        run: npm test -- --watch=false --runInBand --coverage --coverageReporters=lcov
+
+      - name: Upload frontend coverage for SonarQube
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-frontend
+          path: frontend/coverage/lcov.info
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Write test result
         if: always()
@@ -143,13 +200,13 @@ jobs:
           retention-days: 14
 
   sonarqube:
-    name: SonarQube
-    if: github.event_name != 'pull_request' || (vars.SONAR_MODE != 'local' && github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ fromJSON(vars.SONAR_MODE == 'local' && '["self-hosted","sonar-local"]' || '["ubuntu-latest"]') }}
+    name: SonarQube Cloud
+    needs: [test_backend, test_frontend]
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      SONAR_MODE: ${{ vars.SONAR_MODE || 'cloud' }}
-      SONAR_HOST_URL: ${{ vars.SONAR_MODE == 'local' && (vars.SONAR_HOST_URL || 'http://localhost:9000') || 'https://sonarcloud.io' }}
+      SONAR_HOST_URL: https://sonarcloud.io
       SONAR_PROJECT_KEY: ${{ vars.SONAR_PROJECT_KEY }}
       SONAR_ORGANIZATION: ${{ vars.SONAR_ORGANIZATION }}
     steps:
@@ -157,20 +214,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Download backend coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-backend
+          path: backend/coverage
+
+      - name: Download frontend coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-frontend
+          path: frontend/coverage
+
       - name: Verify settings and prepare SonarQube project
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: node .github/scripts/prepare-sonar.mjs
-
-      - name: Use Git Bash instead of WSL bash on Windows
-        if: runner.os == 'Windows'
-        shell: powershell
-        run: |
-          $gitBashDir = Join-Path $env:ProgramFiles 'Git\bin'
-          if (-not (Test-Path -LiteralPath (Join-Path $gitBashDir 'bash.exe'))) {
-            throw 'Git Bash is required on the Windows runner.'
-          }
-          Add-Content -LiteralPath $env:GITHUB_PATH -Value $gitBashDir
 
       - name: Scan code and wait for Quality Gate
         uses: SonarSource/sonarqube-scan-action@v5.0.0
@@ -276,8 +335,8 @@ jobs:
 
   publish:
     name: Publish (${{ matrix.component }})
-    needs: [lint_backend, test_backend, test_frontend, sonarqube, image-security]
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.lint_backend.result == 'success' && needs.test_backend.result == 'success' && needs.test_frontend.result == 'success' && needs.sonarqube.result == 'success' && needs.image-security.result == 'success'
+    needs: [lint_backend, lint_frontend, test_backend, test_frontend, sonarqube, image-security]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.lint_backend.result == 'success' && needs.lint_frontend.result == 'success' && needs.test_backend.result == 'success' && needs.test_frontend.result == 'success' && needs.sonarqube.result == 'success' && needs.image-security.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -333,7 +392,7 @@ jobs:
 
   summary:
     name: Pipeline summary
-    needs: [lint_backend, test_backend, test_frontend, sonarqube, image-security, publish]
+    needs: [lint_backend, lint_frontend, test_backend, test_frontend, sonarqube, image-security, publish]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -363,11 +422,6 @@ jobs:
       - name: Write run summary
         env:
           GH_TOKEN: ${{ github.token }}
-          SONAR_MODE: ${{ vars.SONAR_MODE || 'cloud' }}
-          LINT_RESULT: ${{ needs.lint_backend.result }}
-          TEST_BACKEND_RESULT: ${{ needs.test_backend.result }}
-          TEST_FRONTEND_RESULT: ${{ needs.test_frontend.result }}
           SONAR_RESULT: ${{ needs.sonarqube.result }}
-          IMAGE_RESULT: ${{ needs.image-security.result }}
           PUBLISH_RESULT: ${{ needs.publish.result }}
         run: node .github/scripts/write-summary.mjs

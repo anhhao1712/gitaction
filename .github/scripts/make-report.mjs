@@ -14,6 +14,14 @@ if (kind === 'lint') {
 } else if (kind === 'test') {
   report.install = process.env.INSTALL_OUTCOME;
   report.test = process.env.TEST_OUTCOME;
+  report.lineCoverage = null;
+  const coverageFile = `${component}/coverage/lcov.info`;
+  if (existsSync(coverageFile)) {
+    const lcov = readFileSync(coverageFile, 'utf8');
+    const total = [...lcov.matchAll(/^LF:(\d+)$/gm)].reduce((sum, match) => sum + Number(match[1]), 0);
+    const covered = [...lcov.matchAll(/^LH:(\d+)$/gm)].reduce((sum, match) => sum + Number(match[1]), 0);
+    if (total > 0) report.lineCoverage = Math.round((covered / total) * 1000) / 10;
+  }
 } else {
   report.imageBuild = process.env.BUILD_OUTCOME;
   report.scan = process.env.SCAN_OUTCOME;

@@ -1,46 +1,49 @@
-import { writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
-const mode = process.env.SONAR_MODE;
-const host = process.env.SONAR_HOST_URL;
 const projectKey = process.env.SONAR_PROJECT_KEY;
 const organization = process.env.SONAR_ORGANIZATION;
+const coverageFiles = ['backend/coverage/lcov.info', 'frontend/coverage/lcov.info'];
 
 function fail(message) {
   console.error(`::error::${message}`);
   process.exit(1);
 }
 
-if (!['local', 'cloud'].includes(mode)) {
-  fail('SONAR_MODE must be local or cloud. Set it in repository Actions variables.');
-}
 if (!process.env.SONAR_TOKEN) {
   fail('Missing SONAR_TOKEN in repository Actions secrets.');
 }
 if (!projectKey) {
   fail('Missing SONAR_PROJECT_KEY in repository Actions variables.');
 }
-if (mode === 'cloud' && !organization) {
+if (!organization) {
   fail('Missing SONAR_ORGANIZATION in repository Actions variables.');
 }
-
-let url;
-try {
-  url = new URL(host);
-} catch {
-  fail('SONAR_HOST_URL must be a valid HTTP or HTTPS URL.');
-}
-if (!['http:', 'https:'].includes(url.protocol)) {
-  fail('SONAR_HOST_URL must use HTTP or HTTPS.');
+for (const file of coverageFiles) {
+  if (!existsSync(file)) fail(`Missing ${file}; check the test coverage artifact.`);
+  const component = file.split('/')[0];
+  let sourceCount = 0;
+  const report = readFileSync(file, 'utf8').replace(/^SF:(.+)$/gm, (_, sourcePath) => {
+    const relativePath = sourcePath.trim().replaceAll('\\', '/');
+    const projectPath = relativePath.startsWith(`${component}/`)
+      ? relativePath
+      : `${component}/${relativePath}`;
+    if (!existsSync(projectPath)) fail(`Coverage source ${projectPath} was not found.`);
+    sourceCount += 1;
+    return `SF:${projectPath}`;
+  });
+  if (sourceCount === 0) fail(`Coverage report ${file} has no source files.`);
+  writeFileSync(file, report);
 }
 
 const properties = [
   `sonar.projectKey=${projectKey}`,
+  `sonar.organization=${organization}`,
   'sonar.sources=backend,frontend/src',
   'sonar.exclusions=**/node_modules/**,**/coverage/**,**/build/**',
+  `sonar.javascript.lcov.reportPaths=${coverageFiles.join(',')}`,
   'sonar.qualitygate.wait=true',
   'sonar.qualitygate.timeout=600',
 ];
-if (mode === 'cloud') properties.push(`sonar.organization=${organization}`);
 
 writeFileSync('sonar-project.properties', `${properties.join('\n')}\n`);
-console.log(`Prepared ${mode} SonarQube analysis for ${projectKey} at ${url.origin}`);
+console.log(`Prepared SonarQube Cloud analysis with backend and frontend coverage for ${projectKey}`);
