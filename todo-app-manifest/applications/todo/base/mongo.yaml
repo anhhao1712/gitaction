@@ -54,7 +54,7 @@ spec:
               command:
                 - sh
                 - -c
-                - mongo --quiet --eval 'db.adminCommand({ ping: 1 }).ok'
+                - "mongo --quiet --eval 'db.adminCommand({ ping: 1 }).ok'"
             initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
@@ -62,7 +62,7 @@ spec:
               command:
                 - sh
                 - -c
-                - mongo --quiet --eval 'db.adminCommand({ ping: 1 }).ok'
+                - "mongo --quiet --eval 'db.adminCommand({ ping: 1 }).ok'"
             initialDelaySeconds: 30
             periodSeconds: 20
           volumeMounts:
