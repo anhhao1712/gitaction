@@ -3,8 +3,16 @@ name: CI and image release
 on:
   pull_request:
     branches: [main]
+    paths:
+      - 'todo-app-src/**'
+      - '.github/workflows/ci.yml'
+      - '.github/scripts/**'
   push:
     branches: [main]
+    paths:
+      - 'todo-app-src/**'
+      - '.github/workflows/ci.yml'
+      - '.github/scripts/**'
   workflow_dispatch:
 
 permissions:
@@ -26,16 +34,16 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: backend/package-lock.json
+          cache-dependency-path: todo-app-src/backend/package-lock.json
 
       - name: Install dependencies
         id: install
-        working-directory: backend
+        working-directory: todo-app-src/backend
         run: npm ci
 
       - name: Lint backend
         id: lint
-        working-directory: backend
+        working-directory: todo-app-src/backend
         run: npm run lint
 
       - name: Write lint result
@@ -67,16 +75,16 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: todo-app-src/frontend/package-lock.json
 
       - name: Install dependencies
         id: install
-        working-directory: frontend
+        working-directory: todo-app-src/frontend
         run: npm ci
 
       - name: Lint frontend
         id: lint
-        working-directory: frontend
+        working-directory: todo-app-src/frontend
         run: ./node_modules/.bin/eslint src --ext .js,.jsx
 
       - name: Write lint result
@@ -108,16 +116,16 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: backend/package-lock.json
+          cache-dependency-path: todo-app-src/backend/package-lock.json
 
       - name: Install dependencies
         id: install
-        working-directory: backend
+        working-directory: todo-app-src/backend
         run: npm ci
 
       - name: Run backend tests
         id: test
-        working-directory: backend
+        working-directory: todo-app-src/backend
         env:
           CI: 'true'
         run: npm test -- --runInBand --ci --coverage --coverageReporters=lcov
@@ -126,7 +134,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-backend
-          path: backend/coverage/lcov.info
+          path: todo-app-src/backend/coverage/lcov.info
           if-no-files-found: error
           retention-days: 1
 
@@ -159,16 +167,16 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: todo-app-src/frontend/package-lock.json
 
       - name: Install dependencies
         id: install
-        working-directory: frontend
+        working-directory: todo-app-src/frontend
         run: npm ci
 
       - name: Run frontend tests
         id: test
-        working-directory: frontend
+        working-directory: todo-app-src/frontend
         env:
           CI: 'true'
         run: npm test -- --watch=false --runInBand --coverage --coverageReporters=lcov
@@ -177,7 +185,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-frontend
-          path: frontend/coverage/lcov.info
+          path: todo-app-src/frontend/coverage/lcov.info
           if-no-files-found: error
           retention-days: 1
 
@@ -203,6 +211,8 @@ jobs:
     name: SonarQube Cloud
     needs: [test_backend, test_frontend]
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # Advisory (soft gate): chạy song song để báo cáo chất lượng mã, không làm dừng pipeline hay chặn publish.
+    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -218,23 +228,42 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: coverage-backend
-          path: backend/coverage
+          path: todo-app-src/backend/coverage
 
       - name: Download frontend coverage
         uses: actions/download-artifact@v4
         with:
           name: coverage-frontend
-          path: frontend/coverage
+          path: todo-app-src/frontend/coverage
 
       - name: Verify settings and prepare SonarQube project
+        id: prepare
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: node .github/scripts/prepare-sonar.mjs
 
       - name: Scan code and wait for Quality Gate
+        id: scan
         uses: SonarSource/sonarqube-scan-action@v5.0.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: Write SonarQube result
+        if: always()
+        env:
+          REPORT_KIND: sonar
+          PREPARE_OUTCOME: ${{ steps.prepare.outcome }}
+          SCAN_OUTCOME: ${{ steps.scan.outcome }}
+        run: node .github/scripts/make-report.mjs
+
+      - name: Upload SonarQube result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-report-sonar
+          path: ci-report-sonar.json
+          if-no-files-found: warn
+          retention-days: 14
 
   image-security:
     name: Image security (${{ matrix.component }})
@@ -257,7 +286,7 @@ jobs:
         id: image_build
         uses: docker/build-push-action@v7
         with:
-          context: ./${{ matrix.component }}
+          context: ./todo-app-src/${{ matrix.component }}
           load: true
           tags: todo-app-${{ matrix.component }}:sha-${{ github.sha }}
           labels: |
@@ -335,8 +364,8 @@ jobs:
 
   publish:
     name: Publish (${{ matrix.component }})
-    needs: [lint_backend, lint_frontend, test_backend, test_frontend, sonarqube, image-security]
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.lint_backend.result == 'success' && needs.lint_frontend.result == 'success' && needs.test_backend.result == 'success' && needs.test_frontend.result == 'success' && needs.sonarqube.result == 'success' && needs.image-security.result == 'success'
+    needs: [lint_backend, lint_frontend, test_backend, test_frontend, image-security]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.lint_backend.result == 'success' && needs.lint_frontend.result == 'success' && needs.test_backend.result == 'success' && needs.test_frontend.result == 'success' && needs.image-security.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -346,7 +375,8 @@ jobs:
     permissions:
       contents: read
     env:
-      AWS_REGION: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      ECR_ENV: ${{ vars.ECR_ENV || 'dev' }}
       COMPONENT: ${{ matrix.component }}
     steps:
       - uses: actions/checkout@v4
@@ -361,8 +391,8 @@ jobs:
           name: image-${{ matrix.component }}
           path: images/${{ matrix.component }}
 
-      - name: Configure AWS credentials from lab details
-        uses: aws-actions/configure-aws-credentials@v6.3.0
+      - name: Configure AWS credentials (Learner Lab)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

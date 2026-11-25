@@ -1,0 +1,60 @@
+# Yêu cầu tạo Secret "alertmanager-smtp" trong namespace monitoring ngoài Git (xem monitoring/README.md)
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: todo-routing
+  namespace: monitoring
+spec:
+  route:
+    receiver: "null"
+    groupBy:
+      - alertname
+      - namespace
+      - service
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 3h
+    routes:
+      - receiver: email-notifications
+        matchers:
+          - name: namespace
+            value: todo-prod
+            matchType: "="
+          - name: severity
+            value: critical
+            matchType: "="
+        repeatInterval: 1h
+      - receiver: email-notifications
+        matchers:
+          - name: severity
+            value: critical|warning
+            matchType: "=~"
+  inhibitRules:
+    - sourceMatch:
+        - name: severity
+          value: critical
+          matchType: "="
+      targetMatch:
+        - name: severity
+          value: warning
+          matchType: "="
+      equal:
+        - service
+        - namespace
+  receivers:
+    - name: "null"
+    - name: email-notifications
+      emailConfigs:
+        - to: bahao171206@gmail.com
+          from: bahao171206@gmail.com
+          smarthost: smtp.gmail.com:587
+          authUsername: bahao171206@gmail.com
+          authPassword:
+            name: alertmanager-smtp
+            key: smtp-auth-password
+          requireTLS: true
+          sendResolved: true
+          headers:
+            - key: Subject
+              value: '[{{ .Status | toUpper }}] Todo EKS Alert ({{ .CommonLabels.namespace }}): {{ .CommonAnnotations.summary }}'
+          html: '{{ template "todo.email.html" . }}'

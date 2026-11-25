@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: todo-dev
+resources:
+  - ../../base
+
+configMapGenerator:
+  - name: todo-backend-config
+    literals:
+      - PORT=3000
+      - APP_ENV=dev
+      - LOG_LEVEL=debug
+      - MONGODB_URI=mongodb://mongo:27017/TodoAppDev
+      - OTEL_SERVICE_NAME=todo-backend
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy.monitoring.svc.cluster.local:4318
+
+replicas:
+  - name: backend
+    count: 1
+  - name: frontend
+    count: 1
+
+images:
+  - name: 425959969184.dkr.ecr.us-east-1.amazonaws.com/todo-app-backend
+    newName: 425959969184.dkr.ecr.us-east-1.amazonaws.com/todo-app-backend-dev
+    newTag: sha-0000000000000000000000000000000000000000
+  - name: 425959969184.dkr.ecr.us-east-1.amazonaws.com/todo-app-frontend
+    newName: 425959969184.dkr.ecr.us-east-1.amazonaws.com/todo-app-frontend-dev
+    newTag: sha-0000000000000000000000000000000000000000

@@ -2,7 +2,10 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 const projectKey = process.env.SONAR_PROJECT_KEY;
 const organization = process.env.SONAR_ORGANIZATION;
-const coverageFiles = ['backend/coverage/lcov.info', 'frontend/coverage/lcov.info'];
+const coverageFiles = [
+  'todo-app-src/backend/coverage/lcov.info',
+  'todo-app-src/frontend/coverage/lcov.info',
+];
 
 function fail(message) {
   console.error(`::error::${message}`);
@@ -20,13 +23,19 @@ if (!organization) {
 }
 for (const file of coverageFiles) {
   if (!existsSync(file)) fail(`Missing ${file}; check the test coverage artifact.`);
-  const component = file.split('/')[0];
+  const component = file.split('/')[1];
+  const prefix = `todo-app-src/${component}`;
   let sourceCount = 0;
   const report = readFileSync(file, 'utf8').replace(/^SF:(.+)$/gm, (_, sourcePath) => {
     const relativePath = sourcePath.trim().replaceAll('\\', '/');
-    const projectPath = relativePath.startsWith(`${component}/`)
-      ? relativePath
-      : `${component}/${relativePath}`;
+    let projectPath;
+    if (relativePath.startsWith(`${prefix}/`)) {
+      projectPath = relativePath;
+    } else if (relativePath.startsWith(`${component}/`)) {
+      projectPath = `todo-app-src/${relativePath}`;
+    } else {
+      projectPath = `${prefix}/${relativePath}`;
+    }
     if (!existsSync(projectPath)) fail(`Coverage source ${projectPath} was not found.`);
     sourceCount += 1;
     return `SF:${projectPath}`;
@@ -38,7 +47,8 @@ for (const file of coverageFiles) {
 const properties = [
   `sonar.projectKey=${projectKey}`,
   `sonar.organization=${organization}`,
-  'sonar.exclusions=.github/**,docs/**,**/node_modules/**,**/coverage/**,**/build/**',
+  'sonar.sources=todo-app-src/backend,todo-app-src/frontend',
+  'sonar.exclusions=.github/**,todo-app-infra/**,todo-app-manifest/**,todo-app-src/docs/**,**/node_modules/**,**/coverage/**,**/build/**',
   `sonar.javascript.lcov.reportPaths=${coverageFiles.join(',')}`,
   'sonar.qualitygate.wait=true',
   'sonar.qualitygate.timeout=600',

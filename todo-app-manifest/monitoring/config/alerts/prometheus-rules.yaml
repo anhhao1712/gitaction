@@ -1,0 +1,132 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: todo-app-alerts
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: todo-app
+spec:
+  groups:
+    - name: todo.availability
+      rules:
+        - alert: TodoBackendUnavailable
+          expr: |
+            sum by (namespace) (
+              kube_deployment_status_replicas_available{namespace=~"todo-.*", deployment="backend"}
+            ) == 0
+          for: 2m
+          labels:
+            severity: critical
+            service: todo-backend
+          annotations:
+            summary: "Backend Todo ở {{ $labels.namespace }} không còn pod sẵn sàng"
+            description: "Deployment backend trong namespace {{ $labels.namespace }} có 0 pod available hơn 2 phút. Kiểm tra: kubectl -n {{ $labels.namespace }} get pods,events"
+
+        - alert: TodoFrontendUnavailable
+          expr: |
+            sum by (namespace) (
+              kube_deployment_status_replicas_available{namespace=~"todo-.*", deployment="frontend"}
+            ) == 0
+          for: 2m
+          labels:
+            severity: warning
+            service: todo-frontend
+          annotations:
+            summary: "Frontend Todo ở {{ $labels.namespace }} không còn pod sẵn sàng"
+            description: "Deployment frontend trong namespace {{ $labels.namespace }} có 0 pod available hơn 2 phút."
+
+        - alert: TodoMongoUnavailable
+          expr: |
+            sum by (namespace) (
+              kube_statefulset_status_replicas_ready{namespace=~"todo-.*", statefulset="mongo"}
+            ) == 0
+          for: 2m
+          labels:
+            severity: critical
+            service: todo-mongo
+          annotations:
+            summary: "MongoDB ở {{ $labels.namespace }} không sẵn sàng"
+            description: "StatefulSet mongo trong namespace {{ $labels.namespace }} có 0 pod ready hơn 2 phút."
+
+    - name: todo.workloads
+      rules:
+        - alert: TodoPodCrashLooping
+          expr: |
+            sum by (namespace, pod) (
+              increase(kube_pod_container_status_restarts_total{namespace=~"todo-.*"}[15m])
+            ) > 3
+          for: 5m
+          labels:
+            severity: warning
+            service: todo-app
+          annotations:
+            summary: "Pod {{ $labels.pod }} ở {{ $labels.namespace }} khởi động lại nhiều lần"
+            description: "Pod {{ $labels.pod }} restart > 3 lần trong 15 phút. Kiểm tra logs: kubectl -n {{ $labels.namespace }} logs {{ $labels.pod }} --previous"
+
+        - alert: TodoHighPodMemoryUsage
+          expr: |
+            (
+              sum by (namespace, pod) (container_memory_working_set_bytes{namespace=~"todo-.*", container!="", image!=""})
+              /
+              sum by (namespace, pod) (kube_pod_container_resource_limits{namespace=~"todo-.*", resource="memory"} > 0)
+            ) > 0.85
+          for: 5m
+          labels:
+            severity: warning
+            service: todo-app
+          annotations:
+            summary: "Pod {{ $labels.pod }} ở {{ $labels.namespace }} dùng RAM > 85%"
+            description: "Mức sử dụng RAM hiện tại là {{ $value | humanizePercentage }} so với limit."
+
+    - name: monitoring.storage
+      rules:
+        - alert: MonitoringPVCAlmostFull
+          expr: |
+            (
+              kubelet_volume_stats_available_bytes{namespace=~"todo-.*|monitoring"}
+              /
+              kubelet_volume_stats_capacity_bytes{namespace=~"todo-.*|monitoring"}
+            ) < 0.15
+          for: 10m
+          labels:
+            severity: warning
+            service: storage
+          annotations:
+            summary: "PVC {{ $labels.persistentvolumeclaim }} ở {{ $labels.namespace }} còn dưới 15% dung lượng"
+            description: "Cần dọn dữ liệu hoặc mở rộng EBS volume trước khi đầy."
+
+    - name: todo.slo
+      rules:
+        - alert: TodoHighErrorRate
+          expr: |
+            sum by (namespace) (rate(http_requests_total{namespace=~"todo-.*", status_code=~"5.."}[5m]))
+            /
+            clamp_min(sum by (namespace) (rate(http_requests_total{namespace=~"todo-.*"}[5m])), 1e-6) > 0.05
+          for: 5m
+          labels:
+            severity: critical
+            service: todo-backend
+          annotations:
+            summary: "Tỷ lệ lỗi 5xx cao ở {{ $labels.namespace }} ({{ $value | humanizePercentage }})"
+            description: "Kiểm tra logs và traces của backend trong Grafana Explore."
+
+        - alert: TodoHighLatencyP95
+          expr: |
+            histogram_quantile(0.95, sum by (namespace, le) (rate(http_request_duration_seconds_bucket{namespace=~"todo-.*"}[5m]))) > 0.5
+          for: 10m
+          labels:
+            severity: warning
+            service: todo-backend
+          annotations:
+            summary: "Độ trễ p95 backend ở {{ $labels.namespace }} > 500ms"
+            description: "Độ trễ p95 hiện tại là {{ $value | humanizeDuration }}."
+
+        - alert: TodoMongoDBDisconnected
+          expr: todo_mongodb_up{namespace=~"todo-.*"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            service: todo-mongo
+          annotations:
+            summary: "Backend {{ $labels.namespace }} mất kết nối tới MongoDB"
+            description: "Gauge todo_mongodb_up = 0 hơn 2 phút. Kiểm tra Pod MongoDB và biến MONGODB_URI."

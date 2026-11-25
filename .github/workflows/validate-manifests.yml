@@ -1,0 +1,48 @@
+name: Validate GitOps manifests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'todo-app-manifest/**'
+      - '.github/workflows/validate-manifests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'todo-app-manifest/**'
+      - '.github/workflows/validate-manifests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-kustomize:
+    name: Validate Kustomize and JSON
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build all Kustomize targets
+        run: |
+          set -euo pipefail
+          for dir in \
+            apps \
+            infra/apps \
+            monitoring/apps \
+            monitoring/config \
+            applications/todo/overlays/dev \
+            applications/todo/overlays/prod
+          do
+            echo "Building todo-app-manifest/$dir ..."
+            kubectl kustomize "todo-app-manifest/$dir" > /dev/null
+          done
+
+      - name: Validate Grafana dashboard JSON
+        run: |
+          set -euo pipefail
+          for file in todo-app-manifest/monitoring/config/grafana/dashboards/*.json; do
+            echo "Checking $file ..."
+            jq empty "$file"
+          done

@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: todo-prod
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: todo-project
+  source:
+    repoURL: https://github.com/anhhao1712/gitaction.git
+    targetRevision: main
+    path: todo-app-manifest/applications/todo/overlays/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: todo-prod
+  # Production is promoted deliberately after dev validation.
+  # No automated sync policy: review the Git change, then sync this app.
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true

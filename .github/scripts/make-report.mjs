@@ -2,20 +2,37 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 const component = process.env.COMPONENT;
 const kind = process.env.REPORT_KIND;
-if (!['backend', 'frontend'].includes(component) || !['lint', 'test', 'image'].includes(kind)) {
+if (!['lint', 'test', 'image', 'sonar'].includes(kind)) {
+  throw new Error('REPORT_KIND must be lint, test, image, or sonar');
+}
+if (kind !== 'sonar' && !['backend', 'frontend'].includes(component)) {
   throw new Error('REPORT_KIND and COMPONENT must identify a CI result');
 }
 
-const report = { component, kind };
+const report = kind === 'sonar' ? { kind } : { component, kind };
 
-if (kind === 'lint') {
+if (kind === 'sonar') {
+  const prepare = process.env.PREPARE_OUTCOME ?? 'skipped';
+  const scan = process.env.SCAN_OUTCOME ?? 'skipped';
+  let outcome = 'skipped';
+  if (prepare === 'success' && scan === 'success') {
+    outcome = 'success';
+  } else if (prepare === 'failure' || scan === 'failure') {
+    outcome = 'failure';
+  } else if (prepare === 'cancelled' || scan === 'cancelled') {
+    outcome = 'cancelled';
+  }
+  report.prepare = prepare;
+  report.scan = scan;
+  report.outcome = outcome;
+} else if (kind === 'lint') {
   report.install = process.env.INSTALL_OUTCOME;
   report.lint = process.env.LINT_OUTCOME;
 } else if (kind === 'test') {
   report.install = process.env.INSTALL_OUTCOME;
   report.test = process.env.TEST_OUTCOME;
   report.lineCoverage = null;
-  const coverageFile = `${component}/coverage/lcov.info`;
+  const coverageFile = `todo-app-src/${component}/coverage/lcov.info`;
   if (existsSync(coverageFile)) {
     const lcov = readFileSync(coverageFile, 'utf8');
     const total = [...lcov.matchAll(/^LF:(\d+)$/gm)].reduce((sum, match) => sum + Number(match[1]), 0);
@@ -46,4 +63,5 @@ if (kind === 'lint') {
   }
 }
 
-writeFileSync(`ci-report-${kind}-${component}.json`, `${JSON.stringify(report, null, 2)}\n`);
+const outputFile = kind === 'sonar' ? 'ci-report-sonar.json' : `ci-report-${kind}-${component}.json`;
+writeFileSync(outputFile, `${JSON.stringify(report, null, 2)}\n`);

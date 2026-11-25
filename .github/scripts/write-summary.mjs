@@ -58,11 +58,19 @@ for (const component of ['backend', 'frontend']) {
 }
 
 const sonarJob = jobFor('SonarQube Cloud');
+const sonarReport = readJson('ci-reports/ci-report-sonar.json');
+const sonarStatus = sonarReport?.outcome ?? process.env.SONAR_RESULT;
+const sonarDisplay = ({
+  success: '✅ Đạt *(báo cáo chất lượng, không chặn publish)*',
+  failure: '⚠️ Chưa đạt / lỗi phân tích *(chỉ cảnh báo, không chặn publish)*',
+  skipped: '⏭️ Bỏ qua *(không chặn publish)*',
+})[sonarStatus] ?? `${display(sonarStatus)} *(không chặn publish)*`;
+
 lines.push(
   '',
   '### 2. Chất lượng và bảo mật',
   '',
-  `**SonarQube Cloud / Quality Gate:** ${display(process.env.SONAR_RESULT)} · ${link('Log Sonar', sonarJob?.html_url)}`,
+  `**SonarQube Cloud / Quality Gate:** ${sonarDisplay} · ${link('Log Sonar', sonarJob?.html_url)}`,
   '',
   '| Image | Build | Trivy | High | Critical | Log |',
   '| --- | --- | --- | ---: | ---: | --- |',
@@ -77,7 +85,7 @@ lines.push('', '### 3. Phát hành ECR', '');
 if (process.env.GITHUB_EVENT_NAME === 'pull_request') {
   lines.push('Pull request: không phát hành image lên ECR.', '');
 } else if (process.env.PUBLISH_RESULT === 'skipped') {
-  lines.push('⏭️ Phát hành bị chặn vì một hoặc nhiều bước kiểm tra chưa đạt.', '');
+  lines.push('⏭️ Phát hành bị chặn vì bước kiểm tra bắt buộc (Test hoặc Trivy) chưa đạt.', '');
 }
 lines.push('| Image | Trạng thái | ECR image | Log |', '| --- | --- | --- | --- |');
 for (const component of ['backend', 'frontend']) {
@@ -93,8 +101,16 @@ for (const component of ['backend', 'frontend']) {
 const failures = jobs.flatMap((job) =>
   (job.steps ?? [])
     .filter((step) => step.conclusion === 'failure')
-    .map((step) => `- ${job.name}: ${step.name} — ${link('log', job.html_url)}`),
+    .map((step) => {
+      const note = job.name === 'SonarQube Cloud'
+        ? ' *(cảnh báo SonarQube — không chặn publish)*'
+        : '';
+      return `- ${job.name}: ${step.name}${note} — ${link('log', job.html_url)}`;
+    }),
 );
+if (sonarStatus === 'failure' && !failures.some((item) => item.startsWith('- SonarQube Cloud:'))) {
+  failures.push(`- SonarQube Cloud: Quality Gate / phân tích chưa đạt *(cảnh báo SonarQube — không chặn publish)* — ${link('log', sonarJob?.html_url)}`);
+}
 for (const component of ['backend', 'frontend']) {
   const report = readJson(`ci-reports/ci-report-image-${component}.json`);
   if (report?.scanReportError) failures.push(`- ${component}: ${report.scanReportError}`);

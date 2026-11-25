@@ -1,0 +1,55 @@
+# Datasource Prometheus & Alertmanager đã được kube-prometheus-stack tự provision.
+# File này bổ sung Loki và Tempo để liên kết 3 tín hiệu Metric <-> Log <-> Trace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources-observability
+  namespace: monitoring
+  labels:
+    grafana_datasource: "1"
+data:
+  observability-datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Loki
+        uid: loki
+        type: loki
+        access: proxy
+        url: http://loki-gateway.monitoring.svc.cluster.local
+        editable: true
+        jsonData:
+          maxLines: 1000
+          derivedFields:
+            - name: TraceID
+              datasourceUid: tempo
+              matcherRegex: '"trace_id":"(\w+)"'
+              url: '$${__value.raw}'
+              urlDisplayLabel: View trace in Tempo
+
+      - name: Tempo
+        uid: tempo
+        type: tempo
+        access: proxy
+        url: http://tempo.monitoring.svc.cluster.local:3200
+        editable: true
+        jsonData:
+          httpMethod: GET
+          tracesToLogsV2:
+            datasourceUid: loki
+            spanStartTimeShift: '-5m'
+            spanEndTimeShift: '5m'
+            filterByTraceID: true
+            filterBySpanID: false
+            tags:
+              - key: k8s.namespace.name
+                value: namespace
+              - key: service.name
+                value: app
+          tracesToMetrics:
+            datasourceUid: prometheus
+          serviceMap:
+            datasourceUid: prometheus
+          nodeGraph:
+            enabled: true
+          lokiSearch:
+            datasourceUid: loki

@@ -11,8 +11,9 @@ test -f "$archive"
 gzip -dc "$archive" | docker load
 
 tag="sha-${GITHUB_SHA}"
-repository="todo-app-${COMPONENT}"
-local_image="${repository}:${tag}"
+ecr_env="${ECR_ENV:-dev}"
+repository="todo-app-${COMPONENT}-${ecr_env}"
+local_image="todo-app-${COMPONENT}:${tag}"
 remote_image="${ECR_REGISTRY}/${repository}:${tag}"
 docker tag "$local_image" "$remote_image"
 docker push "$remote_image"
