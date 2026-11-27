@@ -85,7 +85,7 @@ lines.push('', '### 3. Phát hành ECR', '');
 if (process.env.GITHUB_EVENT_NAME === 'pull_request') {
   lines.push('Pull request: không phát hành image lên ECR.', '');
 } else if (process.env.PUBLISH_RESULT === 'skipped') {
-  lines.push('⏭️ Phát hành bị chặn vì bước kiểm tra bắt buộc (Test hoặc Trivy) chưa đạt.', '');
+  lines.push('⏭️ Phát hành bị chặn vì bước kiểm tra bắt buộc (Lint, Test hoặc Trivy) chưa đạt.', '');
 }
 lines.push('| Image | Trạng thái | ECR image | Log |', '| --- | --- | --- | --- |');
 for (const component of ['backend', 'frontend']) {

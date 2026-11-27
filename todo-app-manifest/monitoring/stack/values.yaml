@@ -3,6 +3,23 @@
 kube-prometheus-stack:
   fullnameOverride: kube-prometheus-stack
 
+  # AWS EKS tự quản lý control plane nên không scrape được từ worker node; tắt để tránh alert giả.
+  kubeControllerManager:
+    enabled: false
+  kubeScheduler:
+    enabled: false
+  kubeEtcd:
+    enabled: false
+  kubeProxy:
+    enabled: false
+  defaultRules:
+    rules:
+      etcd: false
+      kubeControllerManager: false
+      kubeSchedulerAlerting: false
+      kubeSchedulerRecording: false
+      kubeProxy: false
+
   grafana:
     # Giữ nguyên tên Service để lệnh port-forward trong monitoring/README.md không đổi
     fullnameOverride: kube-prometheus-stack-grafana
@@ -40,6 +57,8 @@ kube-prometheus-stack:
 
   prometheus:
     prometheusSpec:
+      externalLabels:
+        cluster_id: todo-app-dev-eks
       retention: 7d
       retentionSize: 6GB
       enableFeatures:

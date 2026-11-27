@@ -1,0 +1,201 @@
+{
+  "uid": "eks-cost-overview",
+  "title": "EKS Cost Overview (Kubecost)",
+  "tags": ["kubecost", "cost", "finops", "eks"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(container_cpu_allocation, namespace)",
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".+",
+        "current": { "selected": true, "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Total Cluster Cost (Monthly Est.)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2 } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((sum(avg by (node) (kube_node_status_capacity{resource=\"cpu\", unit=\"core\"}) * avg by (node) (node_cpu_hourly_cost) + avg by (node) (kube_node_status_capacity{resource=\"memory\", unit=\"byte\"}) / 1024 / 1024 / 1024 * avg by (node) (node_ram_hourly_cost))) + (sum(avg by (persistentvolume) (kube_persistentvolume_capacity_bytes) / 1024 / 1024 / 1024 * avg by (persistentvolume) (pv_hourly_cost)) or vector(0))) * 730"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Cluster Hourly Cost",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 4 } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(avg by (node) (kube_node_status_capacity{resource=\"cpu\", unit=\"core\"}) * avg by (node) (node_cpu_hourly_cost) + avg by (node) (kube_node_status_capacity{resource=\"memory\", unit=\"byte\"}) / 1024 / 1024 / 1024 * avg by (node) (node_ram_hourly_cost))) + (sum(avg by (persistentvolume) (kube_persistentvolume_capacity_bytes) / 1024 / 1024 / 1024 * avg by (persistentvolume) (pv_hourly_cost)) or vector(0))"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Idle / Unallocated Cost (Monthly)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2 } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "clamp_min(((sum(avg by (node) (kube_node_status_capacity{resource=\"cpu\", unit=\"core\"}) * avg by (node) (node_cpu_hourly_cost) + avg by (node) (kube_node_status_capacity{resource=\"memory\", unit=\"byte\"}) / 1024 / 1024 / 1024 * avg by (node) (node_ram_hourly_cost))) - (sum(sum by (node) (container_cpu_allocation) * avg by (node) (node_cpu_hourly_cost)) + sum(sum by (node) (container_memory_allocation_bytes) / 1024 / 1024 / 1024 * avg by (node) (node_ram_hourly_cost)))) * 730, 0)"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Cluster Allocation Efficiency",
+      "type": "gauge",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(sum by (node) (container_cpu_allocation) * avg by (node) (node_cpu_hourly_cost)) + sum(sum by (node) (container_memory_allocation_bytes) / 1024 / 1024 / 1024 * avg by (node) (node_ram_hourly_cost))) / (sum(avg by (node) (kube_node_status_capacity{resource=\"cpu\", unit=\"core\"}) * avg by (node) (node_cpu_hourly_cost) + avg by (node) (kube_node_status_capacity{resource=\"memory\", unit=\"byte\"}) / 1024 / 1024 / 1024 * avg by (node) (node_ram_hourly_cost)))"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Monthly Cost by Namespace — CPU + RAM",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2 } },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "lcd",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "sort_desc((sum by (namespace) (sum by (namespace, node) (container_cpu_allocation) * on (node) group_left () avg by (node) (node_cpu_hourly_cost)) + sum by (namespace) (sum by (namespace, node) (container_memory_allocation_bytes) / 1024 / 1024 / 1024 * on (node) group_left () avg by (node) (node_ram_hourly_cost))) * 730)",
+          "legendFormat": "{{namespace}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Hourly Cost Trend by Namespace (CPU + RAM)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 4 } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace) (sum by (namespace, node) (container_cpu_allocation) * on (node) group_left () avg by (node) (node_cpu_hourly_cost)) + sum by (namespace) (sum by (namespace, node) (container_memory_allocation_bytes) / 1024 / 1024 / 1024 * on (node) group_left () avg by (node) (node_ram_hourly_cost))",
+          "legendFormat": "{{namespace}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Monthly Cost by Node (CPU vs RAM)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2 } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg by (node) (kube_node_status_capacity{resource=\"cpu\", unit=\"core\"}) * avg by (node) (node_cpu_hourly_cost) * 730",
+          "legendFormat": "CPU - {{node}}"
+        },
+        {
+          "refId": "B",
+          "expr": "avg by (node) (kube_node_status_capacity{resource=\"memory\", unit=\"byte\"}) / 1024 / 1024 / 1024 * avg by (node) (node_ram_hourly_cost) * 730",
+          "legendFormat": "RAM - {{node}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Monthly Storage Cost by PVC (EBS)",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2 } },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "lcd",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "sort_desc(sum by (namespace, persistentvolumeclaim) (max by (namespace, persistentvolume, persistentvolumeclaim) (pod_pvc_allocation) / 1024 / 1024 / 1024 * on (persistentvolume) group_left () avg by (persistentvolume) (pv_hourly_cost)) * 730)",
+          "legendFormat": "{{namespace}}/{{persistentvolumeclaim}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Top 10 Pods by Monthly Cost (Filtered by Namespace)",
+      "type": "bargauge",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2 } },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "lcd",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "instant": true,
+          "expr": "topk(10, (sum by (namespace, pod) (sum by (namespace, pod, node) (container_cpu_allocation{namespace=~\"$namespace\"}) * on (node) group_left () avg by (node) (node_cpu_hourly_cost)) + sum by (namespace, pod) (sum by (namespace, pod, node) (container_memory_allocation_bytes{namespace=~\"$namespace\"}) / 1024 / 1024 / 1024 * on (node) group_left () avg by (node) (node_ram_hourly_cost))) * 730)",
+          "legendFormat": "{{namespace}}/{{pod}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "CPU Request vs Actual Usage (Rightsizing — $namespace)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(kube_pod_container_resource_requests{resource=\"cpu\", unit=\"core\", namespace=~\"$namespace\"})",
+          "legendFormat": "Requested CPU (cores)"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(container_cpu_usage_seconds_total{container!=\"\", image!=\"\", namespace=~\"$namespace\"}[5m]))",
+          "legendFormat": "Actual CPU Usage (cores)"
+        }
+      ]
+    }
+  ]
+}

@@ -47,7 +47,7 @@ patches:
       - op: add
         path: /metadata/annotations
         value:
-          argocd.argoproj.io/sync-options: Delete=false
+          argocd.argoproj.io/sync-options: Prune=false,Delete=false
   - target:
       group: apps
       version: v1

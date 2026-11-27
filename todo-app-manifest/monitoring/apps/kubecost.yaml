@@ -1,0 +1,116 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kubecost
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://kubecost.github.io/cost-analyzer/
+    chart: cost-analyzer
+    targetRevision: 2.8.7
+    helm:
+      releaseName: kubecost
+      values: |
+        global:
+          clusterId: todo-app-dev-eks
+          prometheus:
+            enabled: false
+            fqdn: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
+          grafana:
+            enabled: false
+            proxy: false
+
+        # Required by chart validation to match global.clusterId even when bundled Prometheus is disabled
+        prometheus:
+          server:
+            global:
+              external_labels:
+                cluster_id: todo-app-dev-eks
+
+        # Reuse kube-state-metrics v2 from kube-prometheus-stack without duplicating KSM metrics
+        kubecostMetrics:
+          emitKsmV1Metrics: false
+          emitKsmV1MetricsOnly: true
+
+        forecasting:
+          enabled: false
+
+        networkCosts:
+          enabled: false
+
+        clusterController:
+          enabled: false
+
+        reporting:
+          productAnalytics: false
+
+        kubecostFrontend:
+          ipv6:
+            enabled: false
+          resources:
+            requests:
+              cpu: 10m
+              memory: 55Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+        kubecostModel:
+          etlDailyStoreDurationDays: 14
+          etlHourlyStoreDurationHours: 49
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 768Mi
+
+        kubecostAggregator:
+          deployMethod: singlepod
+          etlDailyStoreDurationDays: 14
+          etlHourlyStoreDurationHours: 49
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 512Mi
+          cloudCost:
+            resources:
+              requests:
+                cpu: 20m
+                memory: 64Mi
+              limits:
+                cpu: 100m
+                memory: 128Mi
+
+        persistentVolume:
+          enabled: true
+          size: 4Gi
+          storageClass: ebs-sc
+
+        serviceMonitor:
+          enabled: true
+          interval: 1m
+          scrapeTimeout: 10s
+
+        prometheusRule:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true

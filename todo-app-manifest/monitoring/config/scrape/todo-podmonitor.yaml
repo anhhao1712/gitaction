@@ -1,5 +1,5 @@
 apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
+kind: PodMonitor
 metadata:
   name: todo-backend
   namespace: monitoring
@@ -14,7 +14,7 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: todo-backend
-  endpoints:
+  podMetricsEndpoints:
     - port: http
       path: /metrics
       interval: 15s

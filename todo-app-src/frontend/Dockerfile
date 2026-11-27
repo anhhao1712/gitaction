@@ -13,7 +13,7 @@ RUN npm run build
 # Stage 2: Minimal Production Server (Nginx Alpine < 25MB)
 FROM nginx:stable-alpine
 
-RUN apk upgrade --no-cache libxslt
+RUN apk upgrade --no-cache
 
 COPY --from=builder /usr/src/app/build /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf

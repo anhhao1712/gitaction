@@ -26,6 +26,9 @@ spec:
         repeatInterval: 1h
       - receiver: email-notifications
         matchers:
+          - name: namespace
+            value: todo-dev|todo-prod|monitoring
+            matchType: "=~"
           - name: severity
             value: critical|warning
             matchType: "=~"

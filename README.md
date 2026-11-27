@@ -6,14 +6,17 @@ Thư mục này gộp 3 repository (`todo-app-infra`, `todo-app-manifest`, `todo
 
 - **Hạ tầng (`todo-app-infra`):**
   - Đổi region sang `us-east-1` và dùng S3 bucket có sẵn `eks-project1-state-425959969184-1791478850` với state key riêng `todo-app-lab/...`.
-  - Bật `use_existing_lab_role = true` để EKS Control Plane và Managed Node Group (`2 x t3.large`, `single_nat_gateway = true`) tái sử dụng `arn:aws:iam::425959969184:role/LabRole` thay vì tạo IAM Role/KMS Key/IRSA OIDC mới.
+  - Bật `use_existing_lab_role = true` để EKS Control Plane và Managed Node Group (`2 x t3.large`, `node_min_size = 2`, `single_nat_gateway = true`) tái sử dụng `arn:aws:iam::425959969184:role/LabRole` thay vì tạo IAM Role/KMS Key/IRSA OIDC mới.
   - Vẫn giữ `aws-ebs-csi-driver` add-on (không gán `service_account_role_arn` để Pod dùng quyền `LabRole` từ node qua IMDSv2 hop limit = 2).
   - Tắt `module "github_oidc"` (`enable_github_oidc = false`).
+  - ECR lifecycle dọn image `untagged` sau 1 ngày và chỉ xoay vòng tối đa `20` image tag `sha-`, bảo vệ các tag release/prod khác.
 - **GitOps (`todo-app-manifest`):**
   - Toàn bộ 8 file Argo CD trỏ về `https://github.com/anhhao1712/gitaction.git` (nhánh `main`, prefix `todo-app-manifest/...`).
-  - `aws-load-balancer-controller` bỏ annotation IRSA, chuyển `region: us-east-1`, và chờ điền `vpcId`.
+  - `aws-load-balancer-controller` bỏ annotation IRSA, chuyển `region: us-east-1`, bật `ServerSideApply=true`, và cấu hình `vpcId`.
   - `ebs-sc` nâng cấp lên `gp3` + `encrypted: "true"`.
-  - `alertmanager-config.yaml` chuyển email về `bahao171206@gmail.com` và định tuyến mặc định về receiver `"null"` để chặn spam cảnh báo `Watchdog`.
+  - MongoDB `prod` dùng `argocd.argoproj.io/sync-options: Prune=false,Delete=false` để chống xóa nhầm cả khi prune và khi xóa Application.
+  - Monitoring tắt các target/rule control plane (`kubeControllerManager`, `kubeScheduler`, `kubeEtcd`, `kubeProxy`) để tránh cảnh báo giả trên EKS; `alertmanager-config.yaml` chuyển email về `bahao171206@gmail.com`, đặt receiver mặc định `"null"` và lọc `namespace =~ todo-dev|todo-prod|monitoring` cho route email.
+  - Dùng `PodMonitor` (`todo-podmonitor.yaml`) để Prometheus tiếp tục scrape `/metrics` khi pod `backend` đang `NotReady`, giúp alert `TodoMongoDBDisconnected` bắn được khi tắt MongoDB.
 - **CI/CD (`.github/workflows/` & `todo-app-src/`):**
   - Gộp `ci.yml` và `validate-manifests.yml` ra gốc `.github/workflows/`.
   - `publish` chặn cả bước `lint` + `test` + `Trivy HIGH/CRITICAL`, dùng tạm 3 GitHub Secrets của Learner Lab thay cho OIDC.
@@ -192,7 +195,7 @@ Kiểm tra email tại `bahao171206@gmail.com`, sau đó scale lại `--replicas
 
 **Bắt buộc xóa tài nguyên Kubernetes có tạo ALB/EBS trước khi `terragrunt destroy`:**
 ```bash
-# 1. Xóa các Argo CD apps (lưu ý todo-prod có annotation Delete=false ở StatefulSet mongo nên xóa namespace sau cùng)
+# 1. Xóa các Argo CD apps (lưu ý todo-prod có annotation Prune=false,Delete=false ở StatefulSet mongo nên xóa namespace sau cùng)
 kubectl delete application root-app -n argocd
 kubectl delete ingress --all -n todo-dev
 kubectl delete ingress --all -n todo-prod
