@@ -18,7 +18,7 @@ spec:
       values: |
         clusterName: todo-app-dev-eks
         region: us-east-1
-        vpcId: vpc-0e4edc0ed645e7fea
+        vpcId: vpc-0b82c4eda5d85d06a
         serviceAccount:
           create: true
           name: aws-load-balancer-controller
