@@ -24,7 +24,7 @@ replicas:
 images:
   - name: 425959969184.dkr.ecr.us-east-1.amazonaws.com/todo-app-backend
     newName: 425959969184.dkr.ecr.us-east-1.amazonaws.com/todo-app-backend-dev
-    newTag: sha-fcf415ef9fed22448c2564d383eb1f4c2641c170
+    newTag: sha-c15b3f1da956afcee2eb89903c009b46315184b8
   - name: 425959969184.dkr.ecr.us-east-1.amazonaws.com/todo-app-frontend
     newName: 425959969184.dkr.ecr.us-east-1.amazonaws.com/todo-app-frontend-dev
-    newTag: sha-fcf415ef9fed22448c2564d383eb1f4c2641c170
+    newTag: sha-c15b3f1da956afcee2eb89903c009b46315184b8
